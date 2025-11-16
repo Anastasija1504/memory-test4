@@ -1,163 +1,226 @@
-<!doctype html>
-<html lang="uk">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Переверни послідовність — діагностика</title>
-  <style>
-    :root{--bg:#0f1724;--card:#0b1220;--accent:#7dd3fc;--accent2:#a78bfa;--glass: rgba(255,255,255,0.04)}
-    *{box-sizing:border-box;font-family:Inter,system-ui,Segoe UI,Roboto,Arial}
-    body{margin:0;padding:28px;background:#071023;color:#e6eef8}
-    .app{max-width:980px;margin:0 auto;background:#081222;padding:18px;border-radius:12px}
-    .sequence-box{width:320px;height:120px;border-radius:12px;background:rgba(255,255,255,0.03);display:flex;align-items:center;justify-content:center;font-size:62px}
-    .sequence-box.small-text{font-size:20px !important}
-    input[type=text]{padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
-    .btn{padding:10px 14px;border-radius:10px;border:0;cursor:pointer}
-    .btn-primary{background:linear-gradient(90deg,var(--accent),var(--accent2));color:#022235}
-    .debug{margin-top:10px;color:#9fb7d6;font-size:13px}
-  </style>
-</head>
-<body>
-  <div class="app">
-    <h2>Переверни послідовність — тест</h2>
+<script>
+  // БIND AFTER DOM READY
+  document.addEventListener('DOMContentLoaded', ()=>{
 
-    <label>Ім'я: <input id="playerName" type="text" placeholder="Ваше ім'я"></label>
-    <div style="margin:10px 0">
-      <button id="startBtn" class="btn btn-primary" type="button">Почати гру</button>
-    </div>
+    // settings
+    const LEVELS = 5;
+    const EXAMPLES_PER_LEVEL = 3;
+    const SEQ_LENGTHS = [3,4,5,6,7];
+    const SHOW_MS = 700;
 
-    <div class="sequence-box small-text" id="display">Натисніть «Почати гру»</div>
+    // state
+    let state = {player:'', level:0, example:0, score:0, currentSeq:[], awaiting:false, history:[]};
 
-    <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
-      <input id="answer" type="text" placeholder="Введіть відповідь тут" />
-      <button id="submitBtn" class="btn btn-primary" type="button">Відправити</button>
-    </div>
+    // elements
+    const playerName = document.getElementById('playerName');
+    const startBtn = document.getElementById('startBtn');
+    const display = document.getElementById('display');
+    const levelEl = document.getElementById('level');
+    const roundEl = document.getElementById('round');
+    const lenEl = document.getElementById('len');
+    const answer = document.getElementById('answer');
+    const submitBtn = document.getElementById('submitBtn');
+    const playerEl = document.getElementById('player');
+    const scoreEl = document.getElementById('score');
+    const historyEl = document.getElementById('history');
+    const exampleIndexEl = document.getElementById('exampleIndex');
+    const finalResultEl = document.getElementById('finalResult');
+    const showTimeEl = document.getElementById('showTime');
 
-    <div class="debug" id="debugLog">Debug: (консоль також показує логи)</div>
-  </div>
+    // guard: if any required el is missing, bail with console message
+    if(!startBtn || !submitBtn || !answer || !display){
+      console.error('Required element missing:', {startBtn, submitBtn, answer, display});
+      return;
+    }
 
-  <script>
-    document.addEventListener('DOMContentLoaded', ()=> {
-      // Very defensive logging & bindings
-      console.clear();
-      console.log('DOMContentLoaded fired — binding elements');
+    showTimeEl.textContent = SHOW_MS + 'ms';
 
-      // elements
-      const startBtn = document.getElementById('startBtn');
-      const submitBtn = document.getElementById('submitBtn');
-      const answer = document.getElementById('answer');
-      const display = document.getElementById('display');
-      const debugLog = document.getElementById('debugLog');
+    // attach handlers
+    startBtn.addEventListener('click', startGame);
+    // don't prevent default here; call submitAnswer directly
+    submitBtn.addEventListener('click', () => submitAnswer());
 
-      function dbg(msg){ 
-        console.log(msg);
-        if(debugLog) debugLog.textContent = 'Debug: ' + msg;
+    // Enter handler - use keyup for reliability
+    answer.addEventListener('keyup', e => {
+      if(e.key === 'Enter'){
+        submitAnswer();
       }
+    });
 
-      if(!startBtn) { dbg('MISSING startBtn'); return; }
-      if(!submitBtn) { dbg('MISSING submitBtn'); return; }
-      if(!answer) { dbg('MISSING answer input'); return; }
-      if(!display) { dbg('MISSING display'); return; }
+    // Start with reset state
+    resetGame();
 
-      dbg('All required elements found — attaching handlers');
+    /* ---------- game functions ---------- */
 
-      // simple state for demonstration
-      let accepting = false;
-      let currentSeq = [9,8,4];
+    function startGame(){
+      state.player = playerName.value.trim() || 'Гравець';
+      state.level = 1;
+      state.example = 1;
+      state.score = 0;
+      state.history = [];
+      updateUI();
+      playerEl.textContent = state.player;
+      finalResultEl.textContent = '';
+      nextExample();
+    }
 
-      // start button
-      startBtn.addEventListener('click', ()=>{
-        dbg('Start pressed — showing sequence (simulated)');
-        // show sequence digits one by one (quick simulation)
-        accepting = false;
-        display.classList.remove('small-text');
-        display.textContent = '';
-        let i=0;
-        const showOne = ()=> {
-          if(i < currentSeq.length){
-            display.textContent = currentSeq[i];
-            i++;
-            setTimeout(()=> {
-              display.textContent = '';
-              setTimeout(showOne, 220);
-            }, 700);
-          } else {
-            display.classList.add('small-text');
-            display.textContent = 'Тепер введіть відповідь';
-            accepting = true;
-            answer.focus();
-            dbg('Sequence done — now accepting answers');
-          }
-        }
-        showOne();
+    function resetGame(){
+      state = {player:'', level:0, example:0, score:0, currentSeq:[], awaiting:false, history:[]};
+      updateUI();
+      display.classList.add('small-text');
+      display.textContent = 'Натисніть «Почати гру»';
+      playerName.value = '';
+      playerEl.textContent = '—';
+      historyEl.innerHTML = '';
+      finalResultEl.textContent = '';
+      scoreEl.textContent = '0';
+      // make sure controls are enabled for starting
+      answer.disabled = true;
+      // keep submit button enabled (we'll guard inside submitAnswer)
+      submitBtn.disabled = false;
+    }
+
+    function updateUI(){
+      levelEl.textContent = state.level>0?state.level:'—';
+      roundEl.textContent = state.example>0?state.example:'—';
+      lenEl.textContent = state.level>0?SEQ_LENGTHS[state.level-1]:'—';
+      exampleIndexEl.textContent = ((state.level-1)*EXAMPLES_PER_LEVEL + state.example) || '—';
+      scoreEl.textContent = state.score;
+      // enable/disable input for UX, but leave button enabled
+      answer.disabled = !state.awaiting;
+      if(state.awaiting){
+        // prepare input for answer
+        answer.value = '';
+        answer.focus();
+      }
+    }
+
+    function nextExample(){
+      if(state.level > LEVELS){
+        finishGame(); return;
+      }
+      const seqLen = SEQ_LENGTHS[state.level-1];
+      const seq = Array.from({length:seqLen}, () => randomDigit(1,9));
+      state.currentSeq = seq;
+      state.awaiting = false;
+      updateUI();
+      playSequence(seq).then(()=>{
+        state.awaiting = true;
+        updateUI();
+      }).catch(err=>{
+        console.error('playSequence error', err);
+        // allow answering to recover
+        state.awaiting = true;
+        updateUI();
       });
+    }
 
-      // primary click handler for submitBtn
-      submitBtn.addEventListener('click', (e)=>{
-        e.preventDefault();
-        dbg('submitBtn click handler invoked');
-        attemptSubmit();
-      });
+    function randomDigit(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
 
-      // delegation fallback: capture clicks anywhere and if target has id submitBtn, call handler
-      document.addEventListener('click', (e)=>{
-        if(e.target && (e.target.id === 'submitBtn' || e.target.closest && e.target.closest('#submitBtn'))){
-          dbg('document click delegation caught submitBtn click');
-          // small delay to avoid double-run (if real button also fired)
-          setTimeout(()=> attemptSubmit(), 0);
-        }
-      });
+    async function playSequence(seq){
+      display.classList.remove('small-text');
+      display.innerHTML = '';
+      for(let d of seq){
+        display.innerHTML = `<div class="digit glow">${d}</div>`;
+        await wait(SHOW_MS);
+        display.innerHTML = '';
+        await wait(220);
+      }
+      display.classList.add('small-text');
+      display.textContent = 'Тепер введіть відповідь';
+    }
 
-      // Enter key handling on answer input
-      answer.addEventListener('keydown', (e)=>{
-        if(e.key === 'Enter'){
-          e.preventDefault();
-          dbg('Enter pressed in answer field (keydown)');
-          attemptSubmit();
-        }
-      });
+    function wait(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
-      // also support global Enter as fallback
-      window.addEventListener('keydown', (e)=>{
-        if(e.key === 'Enter' && document.activeElement === answer){
-          // already handled above, but keep as safety
-          dbg('Global keydown Enter (fallback)');
-          attemptSubmit();
-        }
-      });
-
-      function attemptSubmit(){
-        dbg('attemptSubmit called — accepting=' + accepting);
-        if(!accepting){
-          dbg('Not accepting answers right now. Click ignored.');
+    function submitAnswer(){
+      try{
+        // single gate: only accept when awaiting
+        if(!state.awaiting){
+          // краще дати користувачеві помітний сигнал
+          // коли відповідь не приймається
+          display.classList.add('small-text');
+          display.textContent = 'Спочатку перегляньте послідовність';
           return;
         }
-        const raw = (answer.value || '').trim();
+
+        const raw = (answer.value || '').replace(/\s+/g,'');
         if(!raw){
-          dbg('Empty answer — alerting');
           alert('Введіть відповідь (наприклад 123)');
           answer.focus();
           return;
         }
-        const expected = currentSeq.slice().reverse().join('');
-        const ok = raw === expected;
-        dbg('User answer: ' + raw + ' expected: ' + expected + ' ok=' + ok);
-        if(ok) {
-          display.classList.remove('small-text');
-          display.textContent = 'Правильно!';
-        } else {
-          display.classList.remove('small-text');
-          display.textContent = 'Неправильно — правильна: ' + expected;
-        }
-        accepting = false;
-        setTimeout(()=> {
-          display.classList.add('small-text');
-          display.textContent = 'Натисніть «Почати гру»';
-        }, 1000);
-      }
 
-      dbg('Handlers attached. Ready.');
-    });
-  </script>
-</body>
-</html>
+        const expect = state.currentSeq.slice().reverse().join('');
+        const correct = raw === expect;
+
+        if(correct) state.score += 10;
+
+        state.history.push({
+          level:state.level, example:state.example,
+          seq:state.currentSeq.join(','), answer:raw,
+          expect, correct
+        });
+
+        addHistoryItem(state.history.at(-1));
+
+        if(state.example < EXAMPLES_PER_LEVEL) state.example++;
+        else { state.level++; state.example=1; }
+
+        state.awaiting = false;
+        updateUI();
+
+        displayFeedback(correct, expect);
+
+        setTimeout(()=>{
+          if(state.level > LEVELS) finishGame();
+          else nextExample();
+        },800);
+
+      }catch(err){
+        console.error('submitAnswer error', err);
+      }
+    }
+
+    function displayFeedback(correct, expect){
+      if(correct){
+        display.innerHTML =
+          `<div style="text-align:center">
+             <div style="font-size:38px;font-weight:700;color:#9ef3d1">Правильно!</div>
+             <div class="small">Правильна відповідь: ${expect}</div>
+           </div>`;
+      } else {
+        display.innerHTML =
+          `<div style="text-align:center">
+             <div style="font-size:34px;font-weight:700;color:#ffb4b4">Неправильно</div>
+             <div class="small">Правильна відповідь: ${expect}</div>
+           </div>`;
+      }
+    }
+
+    function addHistoryItem(item){
+      const el = document.createElement('div');
+      el.className = 'round-item';
+      el.innerHTML = `
+        <div>Рівень ${item.level} • приклад ${item.example}</div>
+        <div style="text-align:right">
+          <div style="font-weight:700">${item.correct?'✔':'✖'} ${item.answer}</div>
+          <div class="small">правильно: ${item.expect}</div>
+        </div>`;
+      historyEl.prepend(el);
+    }
+
+    function finishGame(){
+      display.classList.add('small-text');
+      display.innerHTML = `
+        <div style="text-align:center">
+          <div style="font-size:28px;font-weight:800">Гру завершено</div>
+          <div class="small">Балів: ${state.score}</div>
+        </div>`;
+      finalResultEl.textContent = `${state.player}, ваш рахунок: ${state.score} балів`;
+      state.level = LEVELS+1;
+      state.awaiting = false;
+      updateUI();
+    }
+
+  }); // DOMContentLoaded
+</script>
